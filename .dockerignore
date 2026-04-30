@@ -1,0 +1,22 @@
+## Ignore everything that shouldn't go into the Docker build context
+
+# Git
+.git
+.gitignore
+
+# VS / IDE
+.vs
+*.user
+*.suo
+*.ide.g.cs
+
+# Build output (the Dockerfile rebuilds these inside the container)
+**/bin/
+**/obj/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

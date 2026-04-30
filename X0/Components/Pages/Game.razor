@@ -1,0 +1,449 @@
+@page "/game"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.SignalR.Client
+@using X0.Models
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Game · TicTacToe</PageTitle>
+
+@* ??? Loading ?????????????????????????????????????????????????????????????? *@
+@if (_loading)
+{
+    <div class="fullscreen-center">
+        <div class="spinner-ring"></div>
+        <p class="loading-text">Connecting to server…</p>
+    </div>
+}
+
+@* ??? Fatal error ??????????????????????????????????????????????????????????? *@
+else if (!string.IsNullOrEmpty(_fatalError))
+{
+    <div class="fullscreen-center">
+        <div class="error-card">
+            <div class="error-icon">?</div>
+            <h2>Connection Error</h2>
+            <p>@_fatalError</p>
+            <button class="btn btn-primary" @onclick="GoHome">? Back to Lobby</button>
+        </div>
+    </div>
+}
+
+@* ??? Waiting for opponent ?????????????????????????????????????????????????? *@
+else if (_gameState == null || _gameState.Status == "Waiting")
+{
+    <div class="fullscreen-center">
+        <div class="waiting-card">
+            <div class="waiting-rings">
+                <div class="ring r1"></div>
+                <div class="ring r2"></div>
+                <div class="ring r3"></div>
+                <span class="waiting-emoji">&#x25CF;</span>
+            </div>
+            <h2>Waiting for opponent…</h2>
+            <p class="hint-text">Share this code with a friend</p>
+            <div class="room-code-big">@_roomId</div>
+            <div class="waiting-actions">
+                <button class="btn btn-copy" @onclick="CopyCode">Copy Code</button>
+                <button class="btn btn-ghost" @onclick="GoHome">Cancel</button>
+            </div>
+            @if (_copied)
+            {
+                <div class="copied-badge">? Copied!</div>
+            }
+        </div>
+    </div>
+}
+
+@* ??? Game ?????????????????????????????????????????????????????????????????? *@
+else
+{
+    <div class="game-layout">
+
+        @* Left panel — Players & scores *@
+        <div class="side-panel left-panel">
+            <div class="panel-title">Players</div>
+
+            @foreach (var player in _gameState.Players)
+            {
+                var isMe        = player.ConnectionId == _myConnectionId;
+                var isActive    = _gameState.Status == "Playing"
+                                  && _gameState.CurrentTurnName == player.Name;
+                <div class="player-card @(isActive ? "player-active" : "") @(isMe ? "player-me" : "")">
+                    <div class="player-symbol-badge sym-@player.Symbol.ToLower()">
+                        @player.Symbol
+                    </div>
+                    <div class="player-details">
+                        <div class="player-name-row">
+                            <span class="player-name">@player.Name</span>
+                            @if (isMe) { <span class="you-badge">You</span> }
+                        </div>
+                        <div class="player-score-row">
+                            <span class="score-label">Score</span>
+                            <span class="score-value">@player.Score</span>
+                        </div>
+                    </div>
+                    @if (isActive)
+                    {
+                        <div class="active-dot"></div>
+                    }
+                </div>
+            }
+
+            <div class="room-badge">
+                <span class="room-badge-label">Room</span>
+                <span class="room-badge-code">@_roomId</span>
+            </div>
+
+            @* Game result panel *@
+            @if (_gameState.Status == "Finished")
+            {
+                <div class="result-card @ResultClass">
+                    <div class="result-icon-big">@ResultIcon</div>
+                    <div class="result-title">@ResultText</div>
+                </div>
+
+                <div class="action-row">
+                    @if (_rematchRequested)
+                    {
+                        <div class="rematch-waiting-msg">
+                            <div class="dots-loader"><span></span><span></span><span></span></div>
+                            Waiting for opponent…
+                        </div>
+                    }
+                    else
+                    {
+                        <button class="btn btn-rematch" @onclick="RequestRematch">
+                            &#x21BA; Rematch
+                        </button>
+                    }
+                    <button class="btn btn-ghost" @onclick="GoHome">&#x2302; Lobby</button>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(_disconnectMsg))
+            {
+                <div class="disconnect-msg">@_disconnectMsg</div>
+            }
+        </div>
+
+        @* Center — Board *@
+        <div class="game-center">
+            @if (_gameState.Status == "Playing")
+            {
+                <div class="turn-banner @(_isMyTurn ? "turn-mine" : "turn-theirs")">
+                    @if (_isMyTurn)
+                    {
+                        <span>Your turn</span>
+                        <span class="turn-sym sym-@_mySymbol.ToLower()">@_mySymbol</span>
+                    }
+                    else
+                    {
+                        <span>@_gameState.CurrentTurnName's turn</span>
+                        <span class="turn-sym sym-@_gameState.CurrentTurnSymbol.ToLower()">@_gameState.CurrentTurnSymbol</span>
+                    }
+                </div>
+            }
+
+            <div class="board-wrapper">
+                <div class="board @(_gameState.Status == "Finished" ? "board-done" : "")">
+                    @for (int i = 0; i < 9; i++)
+                    {
+                        var idx      = i;
+                        var cell     = _gameState.Board[idx];
+                        var isWin    = _gameState.WinningLine != null && _gameState.WinningLine.Contains(idx);
+                        var canPlay  = _gameState.Status == "Playing" && _isMyTurn && cell == "";
+
+                        <div class="cell
+                                    @(cell != "" ? $"cell-filled cell-{cell.ToLower()}" : "")
+                                    @(isWin ? "cell-win" : "")
+                                    @(canPlay ? "cell-playable" : "")"
+                             @onclick="() => MakeMove(idx)">
+                            @if (cell == "X")
+                            {
+                                <svg viewBox="0 0 100 100" class="sym-svg" aria-label="X">
+                                    <line x1="18" y1="18" x2="82" y2="82" stroke-linecap="round" class="x-line x-line1"/>
+                                    <line x1="82" y1="18" x2="18" y2="82" stroke-linecap="round" class="x-line x-line2"/>
+                                </svg>
+                            }
+                            else if (cell == "O")
+                            {
+                                <svg viewBox="0 0 100 100" class="sym-svg" aria-label="O">
+                                    <circle cx="50" cy="50" r="34" class="o-circle"/>
+                                </svg>
+                            }
+                            else if (canPlay)
+                            {
+                                <div class="cell-ghost sym-@_mySymbol.ToLower()">
+                                    @_mySymbol
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_statusMsg))
+            {
+                <div class="status-toast @(_statusIsError ? "toast-error" : "toast-info")">
+                    @_statusMsg
+                </div>
+            }
+        </div>
+
+        @* Right panel — Chat *@
+        <div class="side-panel right-panel chat-panel">
+            <div class="panel-title">Chat</div>
+            <div class="chat-messages" id="chatBox">
+                @foreach (var msg in _gameState.ChatMessages)
+                {
+                    var isMine = msg.PlayerName == _playerName;
+                    <div class="chat-bubble @(isMine ? "bubble-mine" : "bubble-theirs")">
+                        @if (!isMine)
+                        {
+                            <div class="bubble-sender">@msg.PlayerName</div>
+                        }
+                        <div class="bubble-text">@msg.Message</div>
+                        <div class="bubble-time">@msg.Timestamp.ToLocalTime().ToString("HH:mm")</div>
+                    </div>
+                }
+                @if (!_gameState.ChatMessages.Any())
+                {
+                    <div class="chat-empty">No messages yet. Say hello!</div>
+                }
+            </div>
+            <div class="chat-footer">
+                <input @bind="_chatDraft"
+                       @bind:event="oninput"
+                       @onkeydown="OnChatKey"
+                       placeholder="Type a message…"
+                       maxlength="200"
+                       class="chat-input" />
+                <button class="btn btn-send"
+                        @onclick="SendChat"
+                        disabled="@string.IsNullOrWhiteSpace(_chatDraft)">
+                    ?
+                </button>
+            </div>
+        </div>
+
+    </div>
+}
+
+@code {
+    // ?? Query params injected by Blazor ????????????????????????????????????
+    [SupplyParameterFromQuery] public string? name { get; set; }
+    [SupplyParameterFromQuery] public string? mode { get; set; }
+    [SupplyParameterFromQuery] public string? room { get; set; }
+
+    // ?? State ??????????????????????????????????????????????????????????????
+    private HubConnection?  _hub;
+    private GameStateDto?   _gameState;
+    private string          _roomId           = "";
+    private string          _playerName       = "";
+    private string          _myConnectionId   = "";
+    private string          _mySymbol         = "";
+    private bool            _loading          = true;
+    private string          _fatalError       = "";
+    private string          _statusMsg        = "";
+    private bool            _statusIsError    = false;
+    private string          _disconnectMsg    = "";
+    private bool            _rematchRequested = false;
+    private string          _chatDraft        = "";
+    private bool            _copied           = false;
+    private bool            _initialized      = false;
+
+    // ?? Computed ???????????????????????????????????????????????????????????
+    private bool _isMyTurn =>
+        _gameState?.Status == "Playing" &&
+        _gameState.CurrentTurnName == _playerName;
+
+    private string ResultClass =>
+        _gameState?.WinnerId == "draw" ? "result-draw" :
+        _gameState?.Players.Any(p => p.ConnectionId == _myConnectionId
+                                  && p.ConnectionId == _gameState?.WinnerId) == true
+            ? "result-win" : "result-lose";
+
+    private string ResultIcon =>
+        _gameState?.WinnerId == "draw" ? "=" :
+        _gameState?.Players.Any(p => p.ConnectionId == _myConnectionId
+                                  && p.ConnectionId == _gameState?.WinnerId) == true
+            ? "Win" : "Loss";
+
+    private string ResultText =>
+        _gameState?.WinnerId == "draw" ? "It's a Draw!" :
+        _gameState?.Players.Any(p => p.ConnectionId == _myConnectionId
+                                  && p.ConnectionId == _gameState?.WinnerId) == true
+            ? "You Win!" : $"{_gameState?.WinnerName} Wins!";
+
+    // ?? Lifecycle ??????????????????????????????????????????????????????????
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _initialized) return;
+        _initialized = true;
+
+        _playerName = name?.Trim() ?? "";
+
+        if (string.IsNullOrWhiteSpace(_playerName))
+        {
+            _fatalError = "No player name provided.";
+            _loading = false;
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            _hub = new HubConnectionBuilder()
+                .WithUrl(Nav.ToAbsoluteUri("/gamehub"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            RegisterHubHandlers();
+
+            await _hub.StartAsync();
+            _myConnectionId = _hub.ConnectionId ?? "";
+
+            if (mode == "create")
+            {
+                await _hub.InvokeAsync("CreateRoom", _playerName);
+            }
+            else if (mode == "join" && !string.IsNullOrEmpty(room))
+            {
+                await _hub.InvokeAsync("JoinRoom", room, _playerName);
+            }
+            else
+            {
+                _fatalError = "Invalid navigation parameters. Please go back and try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _fatalError = $"Could not connect to server: {ex.Message}";
+        }
+
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private void RegisterHubHandlers()
+    {
+        if (_hub == null) return;
+
+        _hub.On<string>("RoomCreated", async (roomId) =>
+        {
+            _roomId         = roomId;
+            _myConnectionId = _hub.ConnectionId ?? "";
+            await InvokeAsync(StateHasChanged);
+        });
+
+        _hub.On<string>("RoomJoined", async (roomId) =>
+        {
+            _roomId         = roomId;
+            _myConnectionId = _hub.ConnectionId ?? "";
+            await InvokeAsync(StateHasChanged);
+        });
+
+        _hub.On<GameStateDto>("GameStateUpdated", async (state) =>
+        {
+            var prevStatus = _gameState?.Status;
+            _gameState = state;
+
+            if (string.IsNullOrEmpty(_myConnectionId))
+                _myConnectionId = _hub?.ConnectionId ?? "";
+
+            var me = state.Players.FirstOrDefault(p => p.ConnectionId == _myConnectionId);
+            if (me != null) _mySymbol = me.Symbol;
+
+            // Sync rematch flag for this player
+            var myIdx = Array.FindIndex(state.Players, p => p.ConnectionId == _myConnectionId);
+            _rematchRequested = myIdx >= 0
+                && state.RematchRequested.Length > myIdx
+                && state.RematchRequested[myIdx];
+
+            // If rematch reset ? clear disconnect msg
+            if (state.Status == "Playing" && prevStatus == "Finished")
+                _disconnectMsg = "";
+
+            // Sound effects
+            if (state.Status == "Finished" && prevStatus != "Finished")
+            {
+                var soundKey = state.WinnerId == "draw" ? "draw"
+                    : (me != null && me.ConnectionId == state.WinnerId) ? "win" : "lose";
+                await JS.InvokeVoidAsync("gameSound.play", soundKey);
+            }
+
+            await JS.InvokeVoidAsync("gameSound.scrollChat", "chatBox");
+            await InvokeAsync(StateHasChanged);
+        });
+
+        _hub.On<GameStateDto>("PlayerDisconnected", async (state) =>
+        {
+            _disconnectMsg = "Opponent disconnected.";
+            _gameState = state;
+            await InvokeAsync(StateHasChanged);
+        });
+
+        _hub.On<string>("Error", async (err) =>
+        {
+            _statusMsg     = err;
+            _statusIsError = true;
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(3000);
+            _statusMsg = "";
+            await InvokeAsync(StateHasChanged);
+        });
+    }
+
+    // ?? Actions ????????????????????????????????????????????????????????????
+    private async Task MakeMove(int idx)
+    {
+        if (_hub == null || !_isMyTurn) return;
+        _statusMsg = "";
+        await JS.InvokeVoidAsync("gameSound.play", "click");
+        await _hub.InvokeAsync("MakeMove", idx);
+    }
+
+    private async Task RequestRematch()
+    {
+        if (_hub == null) return;
+        _rematchRequested = true;
+        await _hub.InvokeAsync("RequestRematch");
+    }
+
+    private async Task SendChat()
+    {
+        if (_hub == null || string.IsNullOrWhiteSpace(_chatDraft)) return;
+        var msg = _chatDraft.Trim();
+        _chatDraft = "";
+        await _hub.InvokeAsync("SendChat", msg);
+    }
+
+    private async Task OnChatKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SendChat();
+    }
+
+    private async Task CopyCode()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _roomId);
+            _copied = true;
+            StateHasChanged();
+            await Task.Delay(2000);
+            _copied = false;
+            StateHasChanged();
+        }
+        catch { /* clipboard may be blocked */ }
+    }
+
+    private void GoHome() => Nav.NavigateTo("/");
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub != null)
+            await _hub.DisposeAsync();
+    }
+}

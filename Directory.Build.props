@@ -1,0 +1,12 @@
+<Project>
+  <!--
+    Redirect all build output to the user TEMP directory so Windows Defender
+    does not block the compiled executable when launching from Visual Studio.
+    TEMP is typically C:\Users\<name>\AppData\Local\Temp which Defender scans
+    with far lower scrutiny than source-tree folders.
+  -->
+  <PropertyGroup>
+    <BaseOutputPath>$(TEMP)\X0Build\</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(TEMP)\X0Obj\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

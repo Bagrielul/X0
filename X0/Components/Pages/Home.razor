@@ -1,0 +1,115 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+
+<PageTitle>TicTacToe Online</PageTitle>
+
+<div class="lobby-bg">
+    <!-- Floating symbols background -->
+    <div class="bg-symbol s1">✕</div>
+    <div class="bg-symbol s2">○</div>
+    <div class="bg-symbol s3">✕</div>
+    <div class="bg-symbol s4">○</div>
+    <div class="bg-symbol s5">✕</div>
+    <div class="bg-symbol s6">○</div>
+
+    <div class="lobby-container">
+        <!-- Header -->
+        <div class="lobby-header">
+            <div class="logo-row">
+                <span class="logo-x">✕</span>
+                <span class="logo-divider">vs</span>
+                <span class="logo-o">○</span>
+            </div>
+            <h1 class="game-title">Tic<span class="accent">Tac</span>Toe</h1>
+            <p class="subtitle">Real-time multiplayer · Online</p>
+        </div>
+
+        <!-- Card -->
+        <div class="lobby-card">
+            <div class="form-group">
+                <label class="form-label">Your Name</label>
+                <input @bind="_playerName"
+                       @bind:event="oninput"
+                       @onkeydown="OnNameKeyDown"
+                       placeholder="Enter your name..."
+                       maxlength="20"
+                       class="text-input @(_nameTouched && !CanProceed ? "input-error" : "")"
+                       @onfocus="() => _nameTouched = false"
+                       @onblur="() => _nameTouched = true" />
+                @if (_nameTouched && !CanProceed)
+                {
+                    <span class="field-error">At least 2 characters required</span>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(_errorMsg))
+            {
+                <div class="alert-error">⚠ @_errorMsg</div>
+            }
+
+            <button class="btn btn-primary btn-full" @onclick="CreateRoom" disabled="@(!CanProceed)">
+                <span class="btn-icon">＋</span>
+                Create New Room
+            </button>
+
+            <div class="divider"><span>or join existing</span></div>
+
+            <div class="join-row">
+                <input @bind="_roomCode"
+                       @bind:event="oninput"
+                       @onkeydown="OnJoinKeyDown"
+                       placeholder="Room code (6 chars)"
+                       maxlength="6"
+                       class="text-input room-code-input"
+                       style="text-transform:uppercase" />
+                <button class="btn btn-secondary" @onclick="JoinRoom" disabled="@(!CanJoin)">
+                    Join →
+                </button>
+            </div>
+        </div>
+
+        <!-- Feature badges -->
+        <div class="feature-row">
+            <div class="badge">&#x26A1; Real-time</div>
+            <div class="badge">&#x2709; Live Chat</div>
+            <div class="badge">&#x2605; Scores</div>
+            <div class="badge">&#x21BA; Rematch</div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _playerName = "";
+    private string _roomCode = "";
+    private string _errorMsg = "";
+    private bool _nameTouched = false;
+
+    private bool CanProceed => !string.IsNullOrWhiteSpace(_playerName) && _playerName.Trim().Length >= 2;
+    private bool CanJoin    => CanProceed && _roomCode.Trim().Length == 6;
+
+    private void CreateRoom()
+    {
+        _errorMsg = "";
+        if (!CanProceed) { _errorMsg = "Please enter your name first."; return; }
+        Nav.NavigateTo($"/game?name={Uri.EscapeDataString(_playerName.Trim())}&mode=create");
+    }
+
+    private void JoinRoom()
+    {
+        _errorMsg = "";
+        if (!CanProceed)  { _errorMsg = "Please enter your name."; return; }
+        if (!CanJoin)     { _errorMsg = "Room code must be exactly 6 characters."; return; }
+        Nav.NavigateTo($"/game?name={Uri.EscapeDataString(_playerName.Trim())}&mode=join&room={_roomCode.Trim().ToUpper()}");
+    }
+
+    private void OnNameKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && CanProceed) CreateRoom();
+    }
+
+    private void OnJoinKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && CanJoin) JoinRoom();
+    }
+}
