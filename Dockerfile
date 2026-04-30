@@ -2,25 +2,29 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Restore dependencies first (layer-cached separately for fast rebuilds)
+# Override the Directory.Build.props paths (those are Windows-only local dev paths)
+ENV BaseIntermediateOutputPath=/tmp/obj/
+ENV BaseOutputPath=/tmp/bin/
+
+# Copy project file and restore
 COPY ["X0/X0.csproj", "X0/"]
-RUN dotnet restore "X0/X0.csproj"
+RUN dotnet restore "X0/X0.csproj" \
+    -p:BaseIntermediateOutputPath=/tmp/obj/ \
+    -p:BaseOutputPath=/tmp/bin/
 
 # Copy everything and publish
 COPY . .
-WORKDIR /src/X0
-RUN dotnet publish "X0.csproj" -c Release -o /app/publish \
+RUN dotnet publish "X0/X0.csproj" -c Release -o /app/publish \
     --no-restore \
-    /p:UseAppHost=false
+    -p:UseAppHost=false \
+    -p:BaseIntermediateOutputPath=/tmp/obj/ \
+    -p:BaseOutputPath=/tmp/bin/
 
 # ?? Stage 2: Runtime ??????????????????????????????????????????????????????????
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
-
-# Copy published output
 COPY --from=build /app/publish .
 
-# Cloud hosts set PORT automatically; default to 8080
 ENV PORT=8080
 EXPOSE 8080
 
